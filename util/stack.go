@@ -8,6 +8,10 @@ func NewStack[T any]() Stack[T] {
 	return Stack[T]{nil}
 }
 
+func NewStackFromSlice[T any](data []T) Stack[T] {
+	return Stack[T]{data}
+}
+
 func (stack *Stack[T]) Push(key T) {
 	stack.keys = append(stack.keys, key)
 }

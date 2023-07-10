@@ -3,8 +3,12 @@ package ast
 
 import (
 	"fmt"
-	"regexp"
+	"sort"
+	"static-analysis/util"
 	"strings"
+	"unicode"
+
+	Text "github.com/linkdotnet/golang-stringbuilder"
 )
 
 type Sexpr struct {
@@ -166,39 +170,35 @@ func Equals(lhs Sexpr, rhs Sexpr, cmp func(any, any) bool) bool {
 }
 
 func Minify(sexpr string) string {
-	sexpr = strings.TrimSpace(sexpr)
-	if sexpr[0] != '(' {
-		return sexpr
+	if !strings.ContainsRune(sexpr, '(') {
+		return strings.TrimSpace(sexpr)
 	}
 
-	s := strings.Builder{}
-	whitespaces := regexp.MustCompile(`\s+`)
-	sexpr = whitespaces.ReplaceAllString(sexpr, " ")
-	seenSpace := false
-	for i := 0; i < len(sexpr); i++ {
-		c := sexpr[i]
-		if c == ' ' {
-			seenSpace = true
+	s := Text.StringBuilder{}
+	wasSpace := false
+	for _, c := range sexpr {
+		if c == ')' || c == '(' {
+			s.AppendRune(c)
+		} else if unicode.IsSpace(c) {
+			wasSpace = true
 			continue
-		}
-		if c == '(' || c == ')' {
-			s.WriteByte(c)
 		} else {
-			if seenSpace {
-				s.WriteByte(' ')
+			last := s.RuneAt(s.Len() - 1)
+			if last != ')' && last != '(' && wasSpace {
+				s.AppendRune(' ')
 			}
-			s.WriteByte(c)
+			s.AppendRune(c)
 		}
-		seenSpace = false
+		wasSpace = false
 	}
-	return s.String()
+	return s.ToString()
 }
 
 func Prettify(sexpr string) string {
-	minified := Minify(sexpr)
-	if minified[0] != '(' {
-		return minified
+	if !strings.ContainsRune(sexpr, '(') {
+		return strings.TrimSpace(sexpr)
 	}
+	minified := Minify(sexpr)
 
 	s := strings.Builder{}
 	for i := 0; i < len(minified); i++ {
@@ -224,9 +224,69 @@ func Prettify(sexpr string) string {
 	return s.String()
 }
 
-func Indent(sexpr string, width int) string {
+type indentInfo = struct{ begin, end, depth int }
+
+func calculateIndentation(sexpr string, width, cutoff int) []indentInfo {
+	rawInfo := util.NewStack[indentInfo]()
+	openParens := util.NewStack[int]()
+
+	curDepth := -1
+	for i := 0; i < len(sexpr); i++ {
+		if sexpr[i] == '(' {
+			openParens.Push(i)
+			curDepth++
+		} else if sexpr[i] == ')' {
+			begin := openParens.ForcePop()
+			end := i
+			rawInfo.Push(indentInfo{begin, end, curDepth})
+			curDepth--
+		}
+	}
+
+	resultInfo := make([]indentInfo, 0, 64)
+	lineEnd := len(sexpr)
+	for !rawInfo.IsEmpty() {
+		pos := rawInfo.ForcePop()
+		exprLen := (pos.end - pos.begin + 1)
+		newOffset := pos.depth * width
+		if lineEnd+exprLen >= cutoff && pos.depth > 0 {
+			resultInfo = append(resultInfo, indentInfo{pos.begin, pos.end, pos.depth})
+			lineEnd = newOffset + exprLen
+		}
+	}
+	sort.SliceStable(resultInfo, func(i, j int) bool { return resultInfo[i].begin < resultInfo[j].begin })
+	return resultInfo
+}
+
+func Indent(sexpr string, width, cutoff int) string {
+	if !strings.ContainsRune(sexpr, '(') {
+		return strings.TrimSpace(sexpr)
+	}
+
 	pretty := Prettify(sexpr)
-	return pretty
+	indicies := calculateIndentation(pretty, width, cutoff)
+	if len(indicies) == 0 {
+		return pretty
+	}
+
+	s := strings.Builder{}
+	curIdx := 0
+	idx := indicies[curIdx]
+	for i, c := range pretty {
+		if i == idx.begin {
+			s.WriteByte('\n')
+			newOffset := idx.depth * width
+			for j := 0; j < newOffset; j++ {
+				s.WriteByte(' ')
+			}
+			curIdx++
+			if curIdx < len(indicies) {
+				idx = indicies[curIdx]
+			}
+		}
+		s.WriteRune(c)
+	}
+	return s.String()
 }
 
 type Action func(Sexpr)

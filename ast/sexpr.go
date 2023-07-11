@@ -3,7 +3,6 @@ package ast
 
 import (
 	"fmt"
-	"sort"
 	"static-analysis/util"
 	"strings"
 	"unicode"
@@ -169,7 +168,7 @@ func Equals(lhs Sexpr, rhs Sexpr, cmp func(any, any) bool) bool {
 		Equals(Cdr(lhs), Cdr(rhs), cmp)
 }
 
-func Minify(sexpr string) string {
+func Minified(sexpr string) string {
 	if !strings.ContainsRune(sexpr, '(') {
 		return strings.TrimSpace(sexpr)
 	}
@@ -194,11 +193,11 @@ func Minify(sexpr string) string {
 	return s.ToString()
 }
 
-func Prettify(sexpr string) string {
+func spaced(sexpr string) string {
 	if !strings.ContainsRune(sexpr, '(') {
 		return strings.TrimSpace(sexpr)
 	}
-	minified := Minify(sexpr)
+	minified := Minified(sexpr)
 
 	s := strings.Builder{}
 	for i := 0; i < len(minified); i++ {
@@ -224,69 +223,73 @@ func Prettify(sexpr string) string {
 	return s.String()
 }
 
-type indentInfo = struct{ begin, end, depth int }
+func indent(sexpr string, indentWidth, maxScreenLimit, maxLineLen int) string {
+	indentationPositions := func(sexpr string, width, cutoff, onelineLen int) (data []struct{ index, depth int }) {
+		openToClosed := make(map[int]struct{ closing, depth int })
+		openParens := util.NewStack[int]()
 
-func calculateIndentation(sexpr string, width, cutoff int) []indentInfo {
-	rawInfo := util.NewStack[indentInfo]()
-	openParens := util.NewStack[int]()
-
-	curDepth := -1
-	for i := 0; i < len(sexpr); i++ {
-		if sexpr[i] == '(' {
-			openParens.Push(i)
-			curDepth++
-		} else if sexpr[i] == ')' {
-			begin := openParens.ForcePop()
-			end := i
-			rawInfo.Push(indentInfo{begin, end, curDepth})
-			curDepth--
+		curDepth := -1
+		for i := 0; i < len(sexpr); i++ {
+			if sexpr[i] == '(' {
+				openParens.Push(i)
+				curDepth++
+			} else if sexpr[i] == ')' {
+				begin := openParens.ForcePop()
+				end := i
+				openToClosed[begin] = struct{ closing, depth int }{end, curDepth}
+				curDepth--
+			}
 		}
+
+		screenPos := 0
+		for i := 1; i < len(sexpr); i++ {
+			c := sexpr[i]
+			if c == '(' {
+				open, closing, depth := i, openToClosed[i].closing, openToClosed[i].depth
+				exprLen := closing - open + 1
+				indent := depth * width
+				if screenPos+exprLen >= cutoff || exprLen >= onelineLen {
+					data = append(data, struct{ index, depth int }{open, depth})
+					screenPos = indent
+				}
+			}
+			screenPos++
+		}
+		return
 	}
 
-	resultInfo := make([]indentInfo, 0, 64)
-	lineEnd := len(sexpr)
-	for !rawInfo.IsEmpty() {
-		pos := rawInfo.ForcePop()
-		exprLen := (pos.end - pos.begin + 1)
-		newOffset := pos.depth * width
-		if lineEnd+exprLen >= cutoff && pos.depth > 0 {
-			resultInfo = append(resultInfo, indentInfo{pos.begin, pos.end, pos.depth})
-			lineEnd = newOffset + exprLen
-		}
-	}
-	sort.SliceStable(resultInfo, func(i, j int) bool { return resultInfo[i].begin < resultInfo[j].begin })
-	return resultInfo
-}
-
-func Indent(sexpr string, width, cutoff int) string {
 	if !strings.ContainsRune(sexpr, '(') {
 		return strings.TrimSpace(sexpr)
 	}
 
-	pretty := Prettify(sexpr)
-	indicies := calculateIndentation(pretty, width, cutoff)
-	if len(indicies) == 0 {
-		return pretty
+	spaced := spaced(sexpr)
+	positions := indentationPositions(spaced, indentWidth, maxScreenLimit, maxLineLen)
+	if len(positions) == 0 {
+		return spaced
 	}
 
 	s := strings.Builder{}
-	curIdx := 0
-	idx := indicies[curIdx]
-	for i, c := range pretty {
-		if i == idx.begin {
+	curIndex := 0
+	pos := positions[curIndex]
+	for i, c := range spaced {
+		if i == pos.index {
 			s.WriteByte('\n')
-			newOffset := idx.depth * width
+			newOffset := pos.depth * indentWidth
 			for j := 0; j < newOffset; j++ {
 				s.WriteByte(' ')
 			}
-			curIdx++
-			if curIdx < len(indicies) {
-				idx = indicies[curIdx]
+			curIndex++
+			if curIndex < len(positions) {
+				pos = positions[curIndex]
 			}
 		}
 		s.WriteRune(c)
 	}
 	return s.String()
+}
+
+func Pretty(sexpr string) string {
+	return indent(sexpr, 4, 100, 20)
 }
 
 type Action func(Sexpr)

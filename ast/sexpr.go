@@ -245,7 +245,7 @@ func indent(sexpr string, indentWidth, maxScreenLimit, maxLineLen int) string {
 		for i := 1; i < len(sexpr); i++ {
 			c := sexpr[i]
 			if c == '(' {
-				open, closing, depth := i, openToClosed[i].closing, openToClosed[i].depth
+				open, closing, depth := i-1, openToClosed[i].closing, openToClosed[i].depth
 				exprLen := closing - open + 1
 				indent := depth * width
 				if screenPos+exprLen >= cutoff || exprLen >= onelineLen {
@@ -272,7 +272,7 @@ func indent(sexpr string, indentWidth, maxScreenLimit, maxLineLen int) string {
 	curIndex := 0
 	pos := positions[curIndex]
 	for i, c := range spaced {
-		if i == pos.index {
+        if i == pos.index {
 			s.WriteByte('\n')
 			newOffset := pos.depth * indentWidth
 			for j := 0; j < newOffset; j++ {
@@ -282,6 +282,7 @@ func indent(sexpr string, indentWidth, maxScreenLimit, maxLineLen int) string {
 			if curIndex < len(positions) {
 				pos = positions[curIndex]
 			}
+            continue
 		}
 		s.WriteRune(c)
 	}

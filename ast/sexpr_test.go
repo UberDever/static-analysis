@@ -184,4 +184,12 @@ func TestPrettify(t *testing.T) {
 			t.Errorf("Got left, expected right\n%s\n", util.ConcatVertically(got, expected))
 		}
 	}
+	{
+		l := S("this", "list", "contains", "very", "big", "amount", "of", "words", S("this", "should", "go", "on", "next", "line"))
+		expected := "(this list contains very big amount of words\n    (this should go on next line))"
+		got := Pretty(l.Print())
+		if got != expected {
+			t.Errorf("Got left, expected right\n%s\n", util.ConcatVertically(got, expected))
+		}
+	}
 }
